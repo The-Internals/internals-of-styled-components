@@ -1,3 +1,7 @@
+## Session link
+
+https://www.youtube.com/watch?v=LngR9lq-Ozg
+
 ## Template tag and Higher order function
 
 ```js
