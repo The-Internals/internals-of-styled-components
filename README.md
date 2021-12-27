@@ -1,70 +1,264 @@
-# Getting Started with Create React App
+## Template tag and Higher order function
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+```js
+const StyledDiv = styled.div`
+  position: relative;
+  padding: 10px;
+`;
 
-## Available Scripts
+const StyledApp = styled(App)`
+  position: relative;
+  padding: 10px;
+`;
+```
 
-In the project directory, you can run:
+- `styled.div` or `styled(App)` is tag function.
 
-### `yarn start`
+Tag functions:
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+```js
+const myMessage = message`
+  Hello ${name},
+  Very Good ${time}
+`;
+```
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+```js
+function message(strings, ...expression) {
+  // string will be array of static part ["Hello ", ",\nVery Good ", "\n"];
+  // expressions will be dynamic interpolations [name, time]
+}
+```
 
-### `yarn test`
+So for styled component it will be
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```js
+const StyledApp = styled(App)`
+  position: relative;
+  padding: 10px;
+  color: ${props => props.color};
+`
 
-### `yarn build`
+const func = styled(App) // or styled.div
+function (styleStrings, ..interpolation) {
+  //...
+}
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+- styled(App) or styled.div is an HOC with forward ref
+- styled.div is shorthand of styled(div)
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```js
+function styled(Component) {
+  return (styleStrings, ...interpolations) => {
+    return forwardRef((props, ref) => {
+      //...
+      return <Component ref={ref} {...props} />;
+    });
+  };
+}
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+const domElements = ["div", "a", "button" /* ... */];
 
-### `yarn eject`
+domElements.forEach((elm) => {
+  styled[elm] = styled(elm);
+});
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+## Classname generation and style processing.
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### Two classNames:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+**1st: styled component id**
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+- styled component generates styled componentId using component displayName and file names when babel is used.
+- component id -> displayName - hash of (styled component version + name + counter)
+- This is used to uniquely identify a styled component on nested styles, server rendering, also for the dynamic classname generation.
 
-## Learn More
+**2nd: dynamic classname**
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+- styled component generates a new className hash using (componentId, generatedStyleStr (after applying interpolation))
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```js
+const StyledApp = styled(App)`
+  position: relative;
+  color: ${(props) => props.color};
+  padding: ${DEFAULT_PADDING};
+`;
 
-### Code Splitting
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+<StyledApp color="red" ref={myComponentRef}>
+```
 
-### Analyzing the Bundle Size
+Styled component will have static styled and interpolation
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+Static Style strings: ['position: relative;\ncolor: ', '\npadding: ', '\n'];
+Interpolation : [(props) => props.color, DEFAULT_PADDING];
 
-### Making a Progressive Web App
+```js
+function styled(Component) {
+  return (styleStrings, ...interpolations) => {
+    return forwardRef((props, ref) => {
+      //...
+      const evaluatedInterpolation = interpolations.map((expr) => {
+        if (typeof expr === "function") return expr(props);
+        return expr;
+      });
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+      // combine string and interpolation
+      const generatedStyleStr = combineStaticAndDynamic(
+        styleStrings,
+        evaluatedInterpolation
+      );
 
-### Advanced Configuration
+      // create className
+      const className = hash(componentId, generatedStyleStr);
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+      // ...
 
-### Deployment
+      return (
+        <Component
+          ref={ref}
+          {...props}
+          css=""
+          className={`${componentId} ${className} ${props.className}`}
+        />
+      );
+    });
+  };
+}
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+### Style Processing:
 
-### `yarn build` fails to minify
+- styled component uses stylis lib to pre process styles.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+```js
+const StyledApp = styled(App)`
+  position: relative;
+  color: ${(props) => props.color};
+
+  && .some-element {
+    color: red;
+  }
+`;
+```
+
+- & will be replaced with generated className `.${className}`,
+
+- They also mark component if there is no interpolation, to avoid heavy computations.
+
+### How props and theme work with styled components?
+
+## props
+
+- Props are passed to interpolations
+- Props can be filtered through shouldForwardProp,
+- You can also make a prop transient prop by prefixing with `$`
+- Props merges attributes provided with .attr() util
+
+```js
+function styled(Component) {
+  return (styleStrings, ...interpolations) => {
+    return forwardRef((props, ref) => {
+      con;
+      const theme = useContext(ThemeProvider);
+      const updatedProps = {
+        theme,
+        ...props,
+      };
+      // ...
+    });
+  };
+}
+```
+
+## Theme support
+
+- uses context, and enhance props with theme
+
+```js
+function styled(Component) {
+  return (styleStrings, ...interpolations) => {
+    return forwardRef((props, ref) => {
+      const theme = useContext(ThemeProvider);
+      const updatedProps = {
+        theme,
+        ...props,
+      };
+      // ...
+    });
+  };
+}
+
+const StyledApp = styled(Component).witConfig({shouldForwardProp: (prop) => });
+```
+
+### How nesting works in styled component
+
+- & will be replaced with generated className `.${className}`,
+- For nested element context of & will change.
+- Due to & replacement reverse selector is supported.
+
+```js
+const StyledApp = styled(App)`
+  position: relative;
+  color: ${(props) => props.color};
+
+  .some-element {
+    color: red;
+  }
+`;
+```
+
+<StyledComponent><div className="element"></div></StyledComponent>
+
+- For Nesting Styled Component componentId's are used. Note the nested component must be Styled component
+
+```js
+const StyledApp = styled(App)`
+  position: relative;
+  color: ${(props) => props.color};
+
+  ${Children} {
+    color: red;
+  }
+`;
+```
+
+### How createGlobalStyle works
+
+- Show demo
+- Support interpolation
+
+```js
+function createGlobalStyle(strings, ...interpolations) {
+  return (props) => {
+    // generate styles through app
+    const evaluatedInterpolation = interpolations.map((expr) => {
+      if (typeof expr === "function") return expr(props);
+      return expr;
+    });
+
+    // combine string and interpolation
+    const generatedStyleStr = combineStaticAndDynamic(
+      styleStrings,
+      evaluatedInterpolation
+    );
+
+    const styles = stylis(generatedStyleStr);
+
+    useEffect(() => {
+      // append to styles rules to style tag
+    }, style);
+    return null;
+  };
+}
+```
+
+### Style component attributes
+
+### Server-side rendering
+
+- Generates component id during compilation using babel plugin
+- Use Context to push generated styles to a collectStyles.
